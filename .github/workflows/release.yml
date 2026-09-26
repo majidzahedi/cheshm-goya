@@ -4,6 +4,9 @@ name: Release
 # release-notes file docs/release-notes/v1.2.3.md — the workflow then creates the tag.
 on:
   push:
+    # Listing only `tags` would exclude branch pushes, so the branch filter is required
+    # for the release-notes trigger to fire.
+    branches: ["**"]
     tags: ["v*"]
     paths: ["docs/release-notes/v*.md"]
   workflow_dispatch:
