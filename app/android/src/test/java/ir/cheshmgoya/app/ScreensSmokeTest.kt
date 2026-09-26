@@ -61,7 +61,7 @@ class ScreensSmokeTest {
 
     @Test fun companionScreensRender() {
         val vm = start()
-        for (s in listOf(Screen.Settings, Screen.History, Screen.MyPhrasesEditor, Screen.Calibration)) {
+        for (s in listOf(Screen.Settings, Screen.History, Screen.MyPhrasesEditor, Screen.Calibration, Screen.VoiceHelp)) {
             rule.runOnUiThread { vm.navigate(s) }
             rule.waitForIdle()
             assertEquals(s, vm.state.value.screen)

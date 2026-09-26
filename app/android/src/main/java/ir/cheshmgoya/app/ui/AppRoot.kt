@@ -1,6 +1,15 @@
 package ir.cheshmgoya.app.ui
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -15,19 +24,18 @@ import ir.cheshmgoya.app.ui.screens.PairingScreen
 import ir.cheshmgoya.app.ui.screens.PatientScreen
 import ir.cheshmgoya.app.ui.screens.RestScreen
 import ir.cheshmgoya.app.ui.screens.SettingsScreen
+import ir.cheshmgoya.app.ui.screens.VoiceHelpScreen
 
 @Composable
 fun AppRoot(vm: MainViewModel) {
     val s by vm.state.collectAsStateWithLifecycle()
     val container = (LocalContext.current.applicationContext as CheshmGoyaApp).container
     val context = LocalContext.current
-    val installVoice = {
-        runCatching { context.startActivity(container.speaker.installPersianVoiceIntent()) }
-            .onFailure { runCatching { context.startActivity(container.speaker.ttsSettingsIntent()) } }
-        Unit
-    }
+    val installVoice = { vm.navigate(Screen.VoiceHelp) }
 
     CheshmGoyaTheme(dark = s.settings.darkTheme, highContrast = s.settings.highContrast, fontScale = s.settings.fontScale) {
+      // Android 15 draws apps edge-to-edge: keep everything clear of the status and navigation bars.
+      Box(Modifier.fillMaxSize().background(LocalAacColors.current.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
         when (s.screen) {
             Screen.Emergency -> EmergencyScreen(
                 smsSent = s.settings.emergencySms && s.settings.emergencyPhone.isNotBlank(),
@@ -77,6 +85,17 @@ fun AppRoot(vm: MainViewModel) {
                     onBack = { vm.navigate(Screen.Settings) },
                 )
             }
+            Screen.VoiceHelp -> {
+                val engine by container.speaker.engineLabel.collectAsStateWithLifecycle()
+                VoiceHelpScreen(
+                    tts = s.tts,
+                    engineLabel = engine,
+                    onOpenTtsSettings = { runCatching { context.startActivity(container.speaker.ttsSettingsIntent()) } },
+                    onOpenLink = { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } },
+                    onRecheck = { container.speaker.recheck() },
+                    onBack = { vm.navigate(Screen.Settings) },
+                )
+            }
             else -> PatientScreen(
                 s = s,
                 onTap = vm::onCellTapped,
@@ -87,5 +106,6 @@ fun AppRoot(vm: MainViewModel) {
                 onDismissNotice = vm::dismissNotice,
             )
         }
+      }
     }
 }

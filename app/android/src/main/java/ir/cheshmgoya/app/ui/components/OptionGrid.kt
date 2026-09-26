@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,27 +49,32 @@ fun OptionGrid(
     emptyRowPlaceholder: (Int) -> String? = { null },
 ) {
     Column(modifier.fillMaxSize().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        grid.rows.forEachIndexed { r, row ->
-            val weight = rowWeights(r)
-            if (row.isEmpty()) {
-                val placeholder = emptyRowPlaceholder(r) ?: return@forEachIndexed
-                Box(Modifier.fillMaxWidth().weight(weight), contentAlignment = Alignment.Center) {
-                    Text(placeholder, color = LocalAacColors.current.onBackground.copy(alpha = 0.35f), fontSize = 18.sp)
-                }
-                return@forEachIndexed
-            }
-            Row(Modifier.fillMaxWidth().weight(weight), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                row.forEachIndexed { col, cell ->
-                    val rowLit = highlight != null && highlight.isRow && highlight.row == r
-                    val itemLit = highlight != null && !highlight.isRow && highlight.row == r && highlight.col == col
-                    OptionCell(
-                        cell = cell,
-                        rowHighlighted = rowLit,
-                        highlighted = itemLit,
-                        progress = if (itemLit || (rowLit && col == 0)) progress else 0f,
-                        onClick = { onTap(r, col) },
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                    )
+        // No early returns inside this loop: returning from an inline lambda in a
+        // composable corrupted Compose's node bookkeeping when the number of rows changed
+        // (crash on opening the keyboard). Each row is keyed by its index.
+        for (r in grid.rows.indices) {
+            val row = grid.rows[r]
+            val placeholder = if (row.isEmpty()) emptyRowPlaceholder(r) else null
+            key(r) {
+                if (row.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().weight(rowWeights(r)), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (col in row.indices) {
+                            val rowLit = highlight != null && highlight.isRow && highlight.row == r
+                            val itemLit = highlight != null && !highlight.isRow && highlight.row == r && highlight.col == col
+                            OptionCell(
+                                cell = row[col],
+                                rowHighlighted = rowLit,
+                                highlighted = itemLit,
+                                progress = if (itemLit || (rowLit && col == 0)) progress else 0f,
+                                onClick = { onTap(r, col) },
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                            )
+                        }
+                    }
+                } else if (placeholder != null) {
+                    Box(Modifier.fillMaxWidth().weight(rowWeights(r)), contentAlignment = Alignment.Center) {
+                        Text(placeholder, color = LocalAacColors.current.onBackground.copy(alpha = 0.35f), fontSize = 18.sp)
+                    }
                 }
             }
         }

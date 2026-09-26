@@ -25,6 +25,7 @@ sealed interface Screen {
     data object Calibration : Screen { override val forPatient = false }
     data object Debug : Screen { override val forPatient = false }
     data object Pairing : Screen { override val forPatient = false }
+    data object VoiceHelp : Screen { override val forPatient = false }
 }
 
 enum class CellStyle { NORMAL, YES, NO, EMERGENCY, NAV, CONTROL, SUGGESTION, LETTER, EMPTY }
