@@ -25,6 +25,13 @@ jobs:
         with:
           name: cheshm-goya-debug-apk
           path: app/android/build/outputs/apk/debug/*.apk
+      - name: Android UI smoke tests (Robolectric)
+        run: ./gradlew :android:testDebugUnitTest --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-test-report
+          path: app/android/build/reports/tests/
 
   server:
     runs-on: ubuntu-latest

@@ -33,6 +33,8 @@ android {
 
     buildFeatures { compose = true }
 
+    testOptions { unitTests.isIncludeAndroidResources = true }
+
     // The face model must stay uncompressed so MediaPipe can memory-map it.
     androidResources { noCompress += "task" }
 
@@ -82,4 +84,18 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
+}
+
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStackTraces = true
+        showStandardStreams = false
+    }
 }
