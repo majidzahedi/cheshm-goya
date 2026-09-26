@@ -18,6 +18,18 @@ android {
         versionName = "1.0.0"
     }
 
+    // One fixed key for every build, so a new version installs over the old one
+    // without uninstalling (which would delete history and «عبارت‌های من»).
+    // For a public release, move this key into GitHub Secrets.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("cheshmgoya-debug.keystore")
+            storePassword = "android"
+            keyAlias = "cheshmgoya"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
