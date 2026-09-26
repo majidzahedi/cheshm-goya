@@ -1,0 +1,51 @@
+# Cheshm-Goya AI server — local network only.
+#
+# `network_mode: host` is used so that (1) mDNS discovery reaches the tablet and
+# (2) the server sees real client addresses for the LAN-only filter. It does NOT
+# open anything to the internet by itself: never add a port-forward on the router.
+# Ollama is bound to 127.0.0.1 so only this server can use it.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    network_mode: host
+    environment:
+      - OLLAMA_HOST=127.0.0.1:11434
+      - OLLAMA_KEEP_ALIVE=60m
+      - OLLAMA_NUM_PARALLEL=2
+    volumes:
+      - ./models/ollama:/root/.ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  api:
+    build: .
+    network_mode: host
+    env_file: .env
+    environment:
+      - CG_DATA_DIR=/srv/data
+      - CG_VOICES_DIR=/srv/models/piper
+      - CG_OLLAMA_URL=http://127.0.0.1:11434
+      - HF_HOME=/srv/models/hf
+      # Models are downloaded once by scripts/download_models.py; at runtime nothing is fetched.
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    volumes:
+      - ./data:/srv/data
+      - ./models:/srv/models
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

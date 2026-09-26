@@ -84,6 +84,8 @@ class AiLayerTest {
         assertEquals("yes_no", q.classify("درد داری؟").type)
         assertEquals("pain", q.classify("درد داری؟").topic)
         assertEquals("feelings", q.classify("حالت چطوره؟").topic)
+        assertEquals("choice", q.classify("حالت چطوره؟").type)
+        assertEquals("open", q.classify("امروز چی شد؟").type)
     }
 
     private class RecordingTransport(val code: Int, val response: String) : HttpTransport {

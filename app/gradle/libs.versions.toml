@@ -15,6 +15,7 @@ datastore = "1.1.1"
 okhttp = "4.12.0"
 zxing = "3.5.3"
 junit = "4.13.2"
+anthropic = "2.65.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -41,6 +42,7 @@ room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+anthropic-java = { module = "com.anthropic:anthropic-java", version.ref = "anthropic" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

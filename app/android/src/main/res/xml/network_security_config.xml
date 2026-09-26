@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The optional AI server runs on the family's own computer on the local network
+  (or over Tailscale, which is already encrypted) and is reached by IP address,
+  so plain HTTP must be allowed. Internet services (Jev, Claude) use HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

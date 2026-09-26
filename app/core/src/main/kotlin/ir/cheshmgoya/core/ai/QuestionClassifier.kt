@@ -17,7 +17,10 @@ class QuestionClassifier {
 
     private val yesNoStarts = listOf("آیا", "ایا")
     private val yesNoVerbs = listOf("میخوای", "می خوای", "میخواین", "داری", "دارین", "هست", "هستی", "خوبی", "میتونی", "می تونی", "موافقی", "باشه", "بیارم", "بدم", "کنم", "ببرم", "بذارم")
-    private val openWords = listOf("چی", "چه", "کجا", "کی ", "کدوم", "چند", "چرا", "چطور", "چجوری")
+    private val openWords = listOf("چی", "چه", "چرا", "کی")
+
+    /** Question words that also appear inflected (چطوره، کجاست، چندتا …). */
+    private val openPrefixes = listOf("چطور", "چجور", "کجا", "کدوم", "چند")
 
     fun classify(question: String): QuestionClass {
         // Keys drop the half-space, so match with spaces removed as well.
@@ -26,8 +29,8 @@ class QuestionClassifier {
         fun has(word: String) = k.contains(word) || compact.contains(word.replace(" ", ""))
 
         val topic = topics.firstOrNull { (_, words) -> words.any { has(it) } }?.first
-        val words = k.split(' ')
-        val isOpen = openWords.any { w -> words.contains(w.trim()) || (w == "کجا" && has("کجات")) }
+        val words = k.split(' ').map { it.trim('؟', '?', '!', '.', '،', ',') }
+        val isOpen = words.any { w -> w in openWords || openPrefixes.any { w.startsWith(it) } }
         val isYesNo = !isOpen && (yesNoStarts.any { k.startsWith(it) } || yesNoVerbs.any { has(it) } || k.endsWith("؟") || k.endsWith("?"))
         val type = when {
             isOpen -> if (topic != null) "choice" else "open"
