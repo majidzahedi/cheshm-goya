@@ -133,7 +133,6 @@ fun PatientScreen(
             )
         }
     }
-    }
 }
 
 /** The text being typed, large, with a blinking caret. */
