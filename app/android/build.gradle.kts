@@ -14,8 +14,8 @@ android {
         applicationId = "ir.cheshmgoya.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0-beta.1"
     }
 
     // One fixed key for every build, so a new version installs over the old one
