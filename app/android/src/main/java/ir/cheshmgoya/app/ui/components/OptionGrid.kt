@@ -19,6 +19,8 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,6 +49,8 @@ fun OptionGrid(
     modifier: Modifier = Modifier,
     rowWeights: (Int) -> Float = { 1f },
     emptyRowPlaceholder: (Int) -> String? = { null },
+    /** Direct-gaze mode: where each option is drawn, in root pixels (left, top, right, bottom). */
+    onCellBounds: ((row: Int, col: Int, l: Float, t: Float, r: Float, b: Float) -> Unit)? = null,
 ) {
     Column(modifier.fillMaxSize().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // No early returns inside this loop: returning from an inline lambda in a
@@ -67,7 +71,13 @@ fun OptionGrid(
                                 highlighted = itemLit,
                                 progress = if (itemLit || (rowLit && col == 0)) progress else 0f,
                                 onClick = { onTap(r, col) },
-                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                                modifier = Modifier.weight(1f).fillMaxHeight().let { m ->
+                                    if (onCellBounds == null) m
+                                    else m.onGloballyPositioned { lc ->
+                                        val b = lc.boundsInRoot()
+                                        onCellBounds(r, col, b.left, b.top, b.right, b.bottom)
+                                    }
+                                },
                             )
                         }
                     }

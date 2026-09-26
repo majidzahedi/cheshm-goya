@@ -21,6 +21,7 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
+import ir.cheshmgoya.core.gaze.EyeGeometry
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +43,8 @@ data class FaceFrame(
     val lookInLeft: Float = 0f,
     val lookInRight: Float = 0f,
     val lookOutRight: Float = 0f,
+    /** Iris, eye-corner and nose points for direct gaze pointing. */
+    val eyes: EyeGeometry? = null,
 )
 
 /**
@@ -82,7 +85,7 @@ class EyeTracker(private val context: Context) {
                 .setMinFaceDetectionConfidence(0.5f)
                 .setMinFacePresenceConfidence(0.5f)
                 .setMinTrackingConfidence(0.5f)
-                .setResultListener { result: FaceLandmarkerResult, _: MPImage -> onResult(result) }
+                .setResultListener { result: FaceLandmarkerResult, image: MPImage -> onResult(result, image.width, image.height) }
                 .setErrorListener { e -> Log.w(TAG, "landmarker error", e) }
                 .build()
             FaceLandmarker.createFromOptions(context, options).also { landmarker = it }
@@ -93,7 +96,7 @@ class EyeTracker(private val context: Context) {
         }
     }
 
-    private fun onResult(result: FaceLandmarkerResult) {
+    private fun onResult(result: FaceLandmarkerResult, width: Int, height: Int) {
         val shapes = result.faceBlendshapes().orElse(null)?.firstOrNull()
         if (shapes == null) {
             _frames.tryEmit(FaceFrame(result.timestampMs(), face = false))
@@ -101,6 +104,11 @@ class EyeTracker(private val context: Context) {
         }
         val m = HashMap<String, Float>(shapes.size)
         for (c in shapes) m[c.categoryName()] = c.score()
+        val eyes = result.faceLandmarks().firstOrNull()?.takeIf { it.size >= 478 }?.let { lms ->
+            val xs = FloatArray(lms.size) { lms[it].x() }
+            val ys = FloatArray(lms.size) { lms[it].y() }
+            EyeGeometry.fromLandmarks(xs, ys, width, height)
+        }
         _frames.tryEmit(
             FaceFrame(
                 timeMs = result.timestampMs(),
@@ -111,6 +119,7 @@ class EyeTracker(private val context: Context) {
                 lookInLeft = m["eyeLookInLeft"] ?: 0f,
                 lookInRight = m["eyeLookInRight"] ?: 0f,
                 lookOutRight = m["eyeLookOutRight"] ?: 0f,
+                eyes = eyes,
             )
         )
     }

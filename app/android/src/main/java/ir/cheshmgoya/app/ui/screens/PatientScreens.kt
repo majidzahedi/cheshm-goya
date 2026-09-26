@@ -56,6 +56,8 @@ fun PatientScreen(
     onSettings: () -> Unit,
     onInstallVoice: () -> Unit,
     onDismissNotice: () -> Unit,
+    onCellBounds: ((Int, Int, Float, Float, Float, Float) -> Unit)? = null,
+    onGazeCalibrate: () -> Unit = {},
 ) {
     val colors = LocalAacColors.current
     Column(Modifier.fillMaxSize().background(colors.background)) {
@@ -66,6 +68,10 @@ fun PatientScreen(
         else if (cameraMode && !s.faceVisible) Banner("چهره دیده نمی‌شود — اسکن متوقف شد. تبلت را روبه‌روی صورت بیمار قرار دهید.", colors.warning)
         if (cameraMode && s.sleeping) Banner("چشم‌ها مدتی بسته بوده‌اند — اسکن متوقف است. با باز کردن چشم ادامه می‌یابد.", colors.nav)
         if (cameraMode && !s.settings.calibrated) Banner("هنوز کالیبراسیون انجام نشده. از تنظیمات، «کالیبراسیون» را اجرا کنید.", colors.control)
+        val directGaze = s.settings.inputMode == InputMode.GAZE_POINT
+        if (directGaze && s.settings.gazeModel.isBlank()) {
+            Banner("برای انتخاب با نگاه، اول «کالیبراسیون نگاه» لازم است.", colors.warning, actionLabel = "کالیبراسیون نگاه", onAction = onGazeCalibrate)
+        }
         if (s.tts == TtsState.PERSIAN_MISSING || s.tts == TtsState.UNAVAILABLE) {
             Banner("صدای فارسی روی این دستگاه نصب نیست؛ پیام‌ها روی صفحه نمایش داده می‌شوند.", colors.warning, actionLabel = "نصب صدای فارسی", onAction = onInstallVoice)
         }
@@ -112,13 +118,21 @@ fun PatientScreen(
                 }
             },
             emptyRowPlaceholder = { r -> if (isHome && r == 0 && s.settings.aiProvider != ir.cheshmgoya.core.ai.ProviderId.OFF) "پیشنهادها" else null },
+            onCellBounds = if (directGaze) onCellBounds else null,
         )
+        if (directGaze) {
+            Text(
+                if (s.zoomed) "به حرف یا گزینه نگاه کنید و پلک بزنید؛ «برگشت» گروه را می‌بندد." else "به گزینه نگاه کنید؛ برای انتخاب، پلک بزنید.",
+                color = colors.onBackground.copy(alpha = 0.7f), fontSize = 16.sp, modifier = Modifier.padding(6.dp),
+            )
+        }
         if (s.settings.inputMode == InputMode.GAZE_BLINK) {
             Text(
                 "برای جابه‌جایی، به چپ یا راست نگاه کنید؛ برای انتخاب، پلک بزنید.",
                 color = colors.onBackground.copy(alpha = 0.7f), fontSize = 16.sp, modifier = Modifier.padding(6.dp),
             )
         }
+    }
     }
 }
 

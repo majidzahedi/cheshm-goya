@@ -26,6 +26,7 @@ sealed interface Screen {
     data object Debug : Screen { override val forPatient = false }
     data object Pairing : Screen { override val forPatient = false }
     data object VoiceHelp : Screen { override val forPatient = false }
+    data object GazeCalibration : Screen { override val forPatient = false }
 }
 
 enum class CellStyle { NORMAL, YES, NO, EMERGENCY, NAV, CONTROL, SUGGESTION, LETTER, EMPTY }
@@ -39,6 +40,9 @@ sealed interface CellAction {
     data class Type(val key: Key) : CellAction
     data class AcceptWord(val word: String) : CellAction
     data class PainLevel(val level: Int) : CellAction
+    /** Direct-gaze mode: open one group of small options as big targets. */
+    data class ZoomRow(val row: Int) : CellAction
+    data object ZoomOut : CellAction
     data object None : CellAction
 }
 
@@ -54,6 +58,20 @@ data class Grid(val rows: List<List<Cell>>) {
 enum class CalibrationPhase { IDLE, PREPARE_OPEN, OPEN, PREPARE_CLOSED, CLOSED, DONE, FAILED }
 
 data class CalibrationState(val phase: CalibrationPhase = CalibrationPhase.IDLE, val message: String = "", val secondsLeft: Int = 0)
+
+enum class GazeCalPhase { INTRO, CALIBRATING, TESTING, DONE, FAILED }
+
+data class GazeCalibrationState(
+    val phase: GazeCalPhase = GazeCalPhase.INTRO,
+    /** Current dot position as a fraction of the calibration area. */
+    val target: ir.cheshmgoya.core.gaze.Pt? = null,
+    val step: Int = 0,
+    val steps: Int = 0,
+    val message: String = "",
+    val errorCm: Double = 0.0,
+    val jitterCm: Double = 0.0,
+    val maxCells: Int = 0,
+)
 
 data class DebugData(
     val signal: List<Float> = emptyList(),
@@ -88,5 +106,10 @@ data class UiState(
     val listening: Boolean = false,
     val notice: String? = null,
     val calibration: CalibrationState = CalibrationState(),
+    val gazeCalibration: GazeCalibrationState = GazeCalibrationState(),
+    /** Estimated gaze point (0..1 of the window), for the optional dot. */
+    val gazePoint: ir.cheshmgoya.core.gaze.Pt? = null,
+    /** Direct-gaze mode: a group is open (zoomed in). */
+    val zoomed: Boolean = false,
     val settings: AppSettings = AppSettings(),
 )

@@ -41,6 +41,7 @@ fun SettingsScreen(
     onHistory: () -> Unit,
     onMyPhrases: () -> Unit,
     onPairing: () -> Unit,
+    onGazeCalibrate: () -> Unit,
     onInstallVoice: () -> Unit,
     onTestQuestion: () -> Unit,
 ) {
@@ -52,6 +53,7 @@ fun SettingsScreen(
 
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onCalibrate) { Text("کالیبراسیون پلک") }
+                Button(onClick = onGazeCalibrate) { Text("کالیبراسیون نگاه (۹ نقطه)") }
                 OutlinedButton(onClick = onDebug) { Text("صفحه‌ی عیب‌یابی (Debug)") }
                 OutlinedButton(onClick = onHistory) { Text("تاریخچه‌ی پیام‌ها") }
                 OutlinedButton(onClick = onMyPhrases) { Text("ویرایش «عبارت‌های من»") }
@@ -88,6 +90,19 @@ fun SettingsScreen(
             SectionTitle("حالت نگاه")
             SliderRow("مدت نگه‌داشتن نگاه", s.gazeHoldMs.toFloat(), 300f..2000f, ::msText) { v -> update { it.copy(gazeHoldMs = v.toLong()) } }
             SwitchRow("برعکس کردن جهت نگاه", s.gazeInverted) { v -> update { it.copy(gazeInverted = v) } }
+
+            SectionTitle("نگاه مستقیم به گزینه")
+            Hint(
+                if (s.gazeModel.isBlank()) "هنوز کالیبراسیون نگاه انجام نشده."
+                else String.format(Locale("fa"), "آخرین کالیبراسیون: خطای میانگین %.1f سانتی‌متر.", s.gazeErrorCm)
+            )
+            Hint("اگر صفحه‌ای بیشتر از این تعداد گزینه داشته باشد، گزینه‌ها گروه‌گروه و بزرگ نشان داده می‌شوند (انتخاب دومرحله‌ای). کالیبراسیون این عدد را بر اساس دقت اندازه‌گیری‌شده تنظیم می‌کند.")
+            SliderRow("حداکثر گزینه‌ی مستقیم", s.gazeMaxCells.toFloat(), 2f..60f, { PersianText.toPersianDigits(it.toInt()) }) { v ->
+                update { it.copy(gazeMaxCells = v.toInt()) }
+            }
+            SliderRow("مکث نگاه تا جابه‌جایی هایلایت", s.gazeDwellMs.toFloat(), 100f..1000f, ::msText) { v -> update { it.copy(gazeDwellMs = v.toLong()) } }
+            SwitchRow("نمایش نقطه‌ی نگاه روی صفحه (برای تنظیم)", s.showGazeDot) { v -> update { it.copy(showGazeDot = v) } }
+            Hint("اگر تبلت یا سر بیمار جابه‌جا شد، یا صفحه چرخید، کالیبراسیون نگاه را دوباره انجام دهید.")
 
             SectionTitle("نمایش")
             SliderRow("اندازه‌ی نوشته‌ها", s.fontScale, 0.7f..1.8f, { String.format(Locale("fa"), "%.0f٪", it * 100) }) { v -> update { it.copy(fontScale = v) } }

@@ -87,6 +87,41 @@ object GridBuilder {
         return Grid(listOf(wordRow, sentenceRow, control) + letters)
     }
 
+    // ---------------------------------------------------------------- direct gaze zoom
+
+    private fun actionable(row: List<Cell>) = row.filter { it.style != CellStyle.EMPTY && it.action != CellAction.None }
+
+    /**
+     * Direct-gaze overview: each row of a crowded screen becomes one big target.
+     * Choosing it opens that row's options as big targets ([zoomIn]); a row with a
+     * single option acts directly.
+     */
+    fun zoomOverview(base: Grid): Grid {
+        val groups = base.rows.mapIndexedNotNull { r, row ->
+            val items = actionable(row)
+            when {
+                items.isEmpty() -> null
+                items.size == 1 -> items[0]
+                else -> {
+                    val label = items.joinToString("  ") { it.label }.let { if (it.length > 42) it.take(40) + "…" else it }
+                    val style = items.map { it.style }.distinct().singleOrNull() ?: CellStyle.NAV
+                    Cell(label, CellAction.ZoomRow(r), if (style == CellStyle.LETTER) CellStyle.NORMAL else style)
+                }
+            }
+        }
+        return Grid(groups.chunked(3))
+    }
+
+    /** Direct-gaze: the options of one row, big, plus a way back. */
+    fun zoomIn(base: Grid, row: Int): Grid {
+        val items = actionable(base.rows.getOrNull(row).orEmpty())
+        if (items.isEmpty()) return zoomOverview(base)
+        val all = items + Cell("↩ برگشت", CellAction.ZoomOut, CellStyle.NAV)
+        return Grid(all.chunked(if (all.size <= 4) 2 else 3))
+    }
+
+    fun cellCount(g: Grid) = g.rows.sumOf { it.size }
+
     /** Label to read aloud for a highlighted row. */
     fun rowLabel(row: List<Cell>): String = row.firstOrNull { it.style != CellStyle.EMPTY }?.label.orEmpty()
 

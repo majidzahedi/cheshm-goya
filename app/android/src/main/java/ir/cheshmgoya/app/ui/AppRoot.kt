@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,6 +26,8 @@ import ir.cheshmgoya.app.ui.screens.PatientScreen
 import ir.cheshmgoya.app.ui.screens.RestScreen
 import ir.cheshmgoya.app.ui.screens.SettingsScreen
 import ir.cheshmgoya.app.ui.screens.VoiceHelpScreen
+import ir.cheshmgoya.app.ui.screens.GazeCalibrationScreen
+import ir.cheshmgoya.app.ui.screens.GazeDot
 
 @Composable
 fun AppRoot(vm: MainViewModel) {
@@ -34,6 +37,7 @@ fun AppRoot(vm: MainViewModel) {
     val installVoice = { vm.navigate(Screen.VoiceHelp) }
 
     CheshmGoyaTheme(dark = s.settings.darkTheme, highContrast = s.settings.highContrast, fontScale = s.settings.fontScale) {
+      Box(Modifier.fillMaxSize().onGloballyPositioned { vm.onRootSize(it.size.width.toFloat(), it.size.height.toFloat()) }) {
       // Android 15 draws apps edge-to-edge: keep everything clear of the status and navigation bars.
       Box(Modifier.fillMaxSize().background(LocalAacColors.current.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
         when (s.screen) {
@@ -51,6 +55,7 @@ fun AppRoot(vm: MainViewModel) {
                 onHistory = { vm.navigate(Screen.History) },
                 onMyPhrases = { vm.navigate(Screen.MyPhrasesEditor) },
                 onPairing = { vm.navigate(Screen.Pairing) },
+                onGazeCalibrate = { vm.navigate(Screen.GazeCalibration) },
                 onInstallVoice = installVoice,
                 onTestQuestion = vm::toggleListening,
             )
@@ -96,6 +101,13 @@ fun AppRoot(vm: MainViewModel) {
                     onBack = { vm.navigate(Screen.Settings) },
                 )
             }
+            Screen.GazeCalibration -> GazeCalibrationScreen(
+                state = s.gazeCalibration,
+                onArea = vm::onGazeCalibrationArea,
+                onStart = vm::startGazeCalibration,
+                onUse = vm::useDirectGaze,
+                onBack = vm::finishGazeCalibration,
+            )
             else -> PatientScreen(
                 s = s,
                 onTap = vm::onCellTapped,
@@ -104,8 +116,14 @@ fun AppRoot(vm: MainViewModel) {
                 onSettings = { vm.navigate(Screen.Settings) },
                 onInstallVoice = installVoice,
                 onDismissNotice = vm::dismissNotice,
+                onCellBounds = vm::onCellBounds,
+                onGazeCalibrate = { vm.navigate(Screen.GazeCalibration) },
             )
         }
+      }
+      // Optional dot where the app thinks the patient is looking (window coordinates).
+      val gp = s.gazePoint
+      if (s.settings.showGazeDot && gp != null && s.screen.forPatient) GazeDot(gp.x.toFloat(), gp.y.toFloat())
       }
     }
 }

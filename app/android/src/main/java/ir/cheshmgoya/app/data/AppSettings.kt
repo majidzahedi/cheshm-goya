@@ -20,6 +20,7 @@ enum class InputMode(val titleFa: String, val usesCamera: Boolean) {
     GAZE_BLINK("نگاه به چپ و راست + پلک", true),
     SWITCH_SCAN("اسکن خودکار + کلید", false),
     SWITCH_MANUAL("فقط کلید (حرکت و انتخاب)", false),
+    GAZE_POINT("نگاه مستقیم به گزینه + پلک (نیاز به کالیبراسیون نگاه)", true),
 }
 
 data class AppSettings(
@@ -57,6 +58,13 @@ data class AppSettings(
     val claudeApiKey: String = "",
     val claudeModel: String = "claude-opus-5",
     val rankThreshold: Float = 0.35f,
+    /** Fitted gaze → screen model (JSON), empty until the 9-point gaze calibration ran. */
+    val gazeModel: String = "",
+    val gazeErrorCm: Float = 0f,
+    /** Screens with more options than this are shown as zoomable groups in direct-gaze mode. */
+    val gazeMaxCells: Int = 12,
+    val gazeDwellMs: Long = 300,
+    val showGazeDot: Boolean = false,
 )
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -96,6 +104,11 @@ class SettingsRepository(private val context: Context) {
         val claudeApiKey = stringPreferencesKey("claudeApiKey")
         val claudeModel = stringPreferencesKey("claudeModel")
         val rankThreshold = floatPreferencesKey("rankThreshold")
+        val gazeModel = stringPreferencesKey("gazeModel")
+        val gazeErrorCm = floatPreferencesKey("gazeErrorCm")
+        val gazeMaxCells = androidx.datastore.preferences.core.intPreferencesKey("gazeMaxCells")
+        val gazeDwellMs = longPreferencesKey("gazeDwellMs")
+        val showGazeDot = booleanPreferencesKey("showGazeDot")
     }
 
     private inline fun <reified E : Enum<E>> enumOf(v: String?, default: E): E =
@@ -140,6 +153,11 @@ class SettingsRepository(private val context: Context) {
             p[K.claudeApiKey] = s.claudeApiKey
             p[K.claudeModel] = s.claudeModel
             p[K.rankThreshold] = s.rankThreshold
+            p[K.gazeModel] = s.gazeModel
+            p[K.gazeErrorCm] = s.gazeErrorCm
+            p[K.gazeMaxCells] = s.gazeMaxCells
+            p[K.gazeDwellMs] = s.gazeDwellMs
+            p[K.showGazeDot] = s.showGazeDot
         }
     }
 
@@ -179,6 +197,11 @@ class SettingsRepository(private val context: Context) {
             claudeApiKey = p[K.claudeApiKey] ?: d.claudeApiKey,
             claudeModel = p[K.claudeModel] ?: d.claudeModel,
             rankThreshold = p[K.rankThreshold] ?: d.rankThreshold,
+            gazeModel = p[K.gazeModel] ?: d.gazeModel,
+            gazeErrorCm = p[K.gazeErrorCm] ?: d.gazeErrorCm,
+            gazeMaxCells = p[K.gazeMaxCells] ?: d.gazeMaxCells,
+            gazeDwellMs = p[K.gazeDwellMs] ?: d.gazeDwellMs,
+            showGazeDot = p[K.showGazeDot] ?: d.showGazeDot,
         )
     }
 }

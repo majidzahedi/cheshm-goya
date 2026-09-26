@@ -33,7 +33,15 @@ import ir.cheshmgoya.core.blink.Calibration
 import ir.cheshmgoya.core.blink.CalibrationOutcome
 import ir.cheshmgoya.core.blink.CalibrationSample
 import ir.cheshmgoya.core.blink.RestWakeDetector
+import ir.cheshmgoya.core.gaze.CellRect
+import ir.cheshmgoya.core.gaze.GazeCalibrationPlan
 import ir.cheshmgoya.core.gaze.GazeConfig
+import ir.cheshmgoya.core.gaze.GazeFeatures
+import ir.cheshmgoya.core.gaze.GazeModel
+import ir.cheshmgoya.core.gaze.GazePointer
+import ir.cheshmgoya.core.gaze.GazeSample
+import ir.cheshmgoya.core.gaze.OneEuroFilter
+import ir.cheshmgoya.core.gaze.Pt
 import ir.cheshmgoya.core.gaze.GazeDetector
 import ir.cheshmgoya.core.gaze.GazeDirection
 import ir.cheshmgoya.core.keyboard.Key
@@ -45,6 +53,7 @@ import ir.cheshmgoya.core.predict.NgramRow
 import ir.cheshmgoya.core.predict.SentenceRow
 import ir.cheshmgoya.core.predict.WordRow
 import ir.cheshmgoya.core.scan.ScanConfig
+import ir.cheshmgoya.core.scan.Highlight
 import ir.cheshmgoya.core.scan.ScanLevel
 import ir.cheshmgoya.core.scan.ScanMode
 import ir.cheshmgoya.core.scan.ScanSelection
@@ -104,6 +113,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var fpsFrames = 0
     private var fps = 0f
 
+    // Direct gaze pointing
+    private val gazePointer = GazePointer()
+    private var gazeFilter = OneEuroFilter()
+    private var gazeModel: GazeModel? = null
+    private val cellBounds = HashMap<Pair<Int, Int>, CellRect>()
+    private var cellRects: List<CellRect> = emptyList()
+    private var rootW = 0f
+    private var rootH = 0f
+    private var zoomRow: Int? = null
+    /** Option that was lit just before the eye started closing (the one a blink selects). */
+    private var gazeLocked: CellRect? = null
+    private var lastGazePoint: Pt? = null
+    private var lastDotUpdate = 0L
+    // Gaze calibration
+    private var gazeCalJob: Job? = null
+    private var gazeCalArea: FloatArray? = null // left, top, width, height in root px
+    private var gazeCalTarget: Pt? = null // root-normalised, while collecting
+    private var gazeCalCollectCalib = false
+    private val gazeCalSamples = ArrayList<GazeSample>()
+    private var gazeTestEstimates: MutableList<Pt>? = null
+    private var gazeTestFilter = OneEuroFilter()
+
     private fun now() = SystemClock.uptimeMillis()
 
     init {
@@ -145,6 +176,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun applySettings(s: AppSettings) {
         val first = !settingsLoaded
+        val oldMode = settings.inputMode
         settings = s
         settingsLoaded = true
         blink.config = BlinkConfig(
@@ -156,7 +188,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             eyes = s.eyes,
         )
         gaze.config = GazeConfig(holdMs = s.gazeHoldMs, center = s.gazeCenter, inverted = s.gazeInverted)
-        val mode = if (s.inputMode == InputMode.GAZE_BLINK || s.inputMode == InputMode.SWITCH_MANUAL) ScanMode.LINEAR else ScanMode.AUTO
+        val modeChanged = s.inputMode != oldMode || first
+        gazeModel = GazeModel.fromJson(s.gazeModel)
+        gazePointer.dwellMs = s.gazeDwellMs
+        if (modeChanged) { zoomRow = null; gazePointer.reset(); gazeLocked = null }
+        val mode = if (s.inputMode == InputMode.GAZE_BLINK || s.inputMode == InputMode.SWITCH_MANUAL || s.inputMode == InputMode.GAZE_POINT) ScanMode.LINEAR else ScanMode.AUTO
         val newScan = ScanConfig(stepMs = s.scanStepMs, mode = mode)
         if (newScan != scanner.config || first) scanner.updateConfig(newScan, now())
         c.applyAiSettings(s)
@@ -172,6 +208,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val autoScan get() = settings.inputMode == InputMode.SCAN_BLINK || settings.inputMode == InputMode.SWITCH_SCAN
     private val usesCamera get() = settings.inputMode.usesCamera
+    private val directGaze get() = settings.inputMode == InputMode.GAZE_POINT
 
     // ------------------------------------------------------------------ camera frames
 
@@ -192,9 +229,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val active = usesCamera && (screen.forPatient) && phase == CalibrationPhase.IDLE
         val events = blink.onSample(t, if (f.face) l else null, if (f.face) r else null)
         if (screen == Screen.Debug) pushDebug(f, l, r, horizontal)
+        val gazePoint = onGazeFeatures(t, f)
         if (!active) return
 
         for (e in events) onBlinkEvent(e)
+        if (directGaze && hasGrid(screen)) {
+            val closing = blink.isClosed || blink.lastSignal > blink.config.openThreshold
+            if (gazePointer.update(t, gazePoint, cellRects, frozen = closing)) {
+                publishHighlight()
+                if (settings.readAloud) readHighlight()
+            }
+        }
         if (settings.inputMode == InputMode.GAZE_BLINK && screen != Screen.Rest && screen != Screen.Emergency) {
             val closing = blink.isClosed || blink.lastSignal > blink.config.openThreshold
             when (gaze.onSample(t, horizontal, closing)) {
@@ -208,7 +253,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun onBlinkEvent(e: BlinkEvent) {
         val screen = _state.value.screen
         when (e) {
-            is BlinkEvent.Closed -> if (hasGrid(screen)) { scanner.freeze(e.atMs); publishHighlight() }
+            is BlinkEvent.Closed -> if (hasGrid(screen)) {
+                if (directGaze) gazeLocked = gazePointer.cellAt(e.atMs - 250) ?: gazePointer.current
+                else scanner.freeze(e.atMs)
+                publishHighlight()
+            }
             is BlinkEvent.Ready -> if (screen != Screen.Emergency) c.sounds.ready()
             is BlinkEvent.Voluntary -> when (screen) {
                 Screen.Rest -> {
@@ -218,10 +267,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 Screen.Emergency -> Unit // only the companion can stop the alarm
                 else -> select(e.atMs)
             }
-            is BlinkEvent.Ignored -> { scanner.unfreeze(e.atMs); publishHighlight() }
-            is BlinkEvent.SleepStarted -> { _state.update { it.copy(sleeping = true) }; scanner.stop() }
+            is BlinkEvent.Ignored -> { gazeLocked = null; scanner.unfreeze(e.atMs); publishHighlight() }
+            is BlinkEvent.SleepStarted -> { gazeLocked = null; _state.update { it.copy(sleeping = true) }; scanner.stop() }
             is BlinkEvent.SleepEnded -> { _state.update { it.copy(sleeping = false) }; scanner.unfreeze(e.atMs); resumeScanning() }
-            is BlinkEvent.FaceLost -> { _state.update { it.copy(faceVisible = false) }; scanner.stop() }
+            is BlinkEvent.FaceLost -> { gazeLocked = null; _state.update { it.copy(faceVisible = false) }; scanner.stop() }
             is BlinkEvent.FaceFound -> { _state.update { it.copy(faceVisible = true) }; resumeScanning() }
         }
     }
@@ -251,12 +300,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun publishHighlight() {
-        val h = if (hasGrid(_state.value.screen)) scanner.highlight() else null
+        val h = when {
+            !hasGrid(_state.value.screen) -> null
+            directGaze -> (gazeLocked ?: gazePointer.current)?.let { Highlight(ScanLevel.ITEMS, it.row, it.col) }
+            else -> scanner.highlight()
+        }
         if (h != _state.value.highlight) _state.update { it.copy(highlight = h) }
     }
 
     private fun readHighlight() {
-        val h = scanner.highlight() ?: return
+        val h = (if (directGaze) _state.value.highlight else scanner.highlight()) ?: return
         val rows = _state.value.grid.rows
         val label = if (h.level == ScanLevel.ROWS) GridBuilder.rowLabel(rows.getOrNull(h.row).orEmpty())
         else rows.getOrNull(h.row)?.getOrNull(h.col)?.label.orEmpty()
@@ -272,6 +325,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun select(t: Long) {
         if (!hasGrid(_state.value.screen)) return
+        if (directGaze) {
+            val target = gazeLocked ?: gazePointer.current
+            gazeLocked = null
+            val cell = target?.let { _state.value.grid.rows.getOrNull(it.row)?.getOrNull(it.col) }
+            if (cell != null && cell.action != CellAction.None) {
+                c.sounds.selected()
+                perform(cell.action)
+            } else publishHighlight()
+            return
+        }
         when (val sel = scanner.select(t)) {
             is ScanSelection.Item -> {
                 val cell = _state.value.grid.rows.getOrNull(sel.row)?.getOrNull(sel.col)
@@ -328,7 +391,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------ actions
 
     private fun perform(a: CellAction) {
+        val leaveZoom = zoomRow != null && a !is CellAction.ZoomRow && a !is CellAction.ZoomOut
         when (a) {
+            is CellAction.ZoomRow -> { zoomRow = a.row; rebuildGrid(reset = true) }
+            CellAction.ZoomOut -> { zoomRow = null; rebuildGrid(reset = true) }
             is CellAction.Say -> speakMessage(a.text)
             is CellAction.Go -> navigate(a.screen)
             CellAction.GoHome -> navigate(Screen.Home)
@@ -349,6 +415,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             CellAction.None -> Unit
         }
+        // After choosing inside an opened group, go back to the overview (two-step typing).
+        if (leaveZoom && zoomRow != null) {
+            zoomRow = null
+            rebuildGrid(reset = true)
+        }
     }
 
     fun navigate(screen: Screen) {
@@ -356,6 +427,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (prev == Screen.Emergency && screen != Screen.Emergency) return // only stopEmergency() leaves
         if (prev == Screen.Debug && screen != Screen.Debug) c.eyeTracker.setPreview(null)
         if (prev == Screen.Pairing) { c.eyeTracker.qrMode = false; c.discovery.stop() }
+        zoomRow = null
         val keepQuestion = screen is Screen.Category || screen == Screen.YesNo || screen == Screen.Keyboard || screen == Screen.PainScale
         _state.update {
             it.copy(
@@ -378,7 +450,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun rebuildGrid(reset: Boolean) {
         val st = _state.value
-        val grid = when (val s = st.screen) {
+        val base = when (val s = st.screen) {
             Screen.Home -> GridBuilder.home(homeSuggestions)
             is Screen.Category -> GridBuilder.category(s.id, customPhrases.value.map { it.text })
             Screen.PainScale -> GridBuilder.painScale()
@@ -386,9 +458,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Screen.Keyboard -> GridBuilder.keyboard(settings.keyboardLayout, wordSuggestions, sentenceSuggestions)
             else -> Grid.EMPTY
         }
+        val zoomNeeded = directGaze && GridBuilder.cellCount(base) > settings.gazeMaxCells
+        if (!zoomNeeded) zoomRow = null
+        val grid = if (!zoomNeeded) base else zoomRow?.let { GridBuilder.zoomIn(base, it) } ?: GridBuilder.zoomOverview(base)
         val sizesChanged = grid.rowSizes != st.grid.rowSizes
-        _state.update { it.copy(grid = grid) }
-        if (reset || sizesChanged) scanner.setLayout(grid.rowSizes, now())
+        _state.update { it.copy(grid = grid, zoomed = zoomRow != null) }
+        if (reset || sizesChanged) {
+            scanner.setLayout(grid.rowSizes, now())
+            // Option positions change: forget old rectangles until the UI reports the new ones.
+            cellBounds.clear()
+            cellRects = emptyList()
+            gazePointer.reset()
+            gazeLocked = null
+        }
         publishHighlight()
     }
 
@@ -584,6 +666,148 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun finishCalibration() {
         calibrationJob?.cancel()
         _state.update { it.copy(calibration = CalibrationState()) }
+        navigate(Screen.Home)
+    }
+
+    // ------------------------------------------------------------------ direct gaze
+
+    /** Computes the gaze point for this frame (null if unknown) and feeds the gaze calibration. */
+    private fun onGazeFeatures(t: Long, f: FaceFrame): Pt? {
+        val eyes = f.eyes
+        if (!f.face || eyes == null) {
+            gazeFilter.reset()
+            return null
+        }
+        val calibrating = gazeCalTarget != null
+        if (!directGaze && !calibrating && !settings.showGazeDot) return null
+        val eyesOpen = blink.lastSignal < blink.config.openThreshold && !blink.isClosed
+        val features = GazeFeatures.extract(eyes)
+        gazeCalTarget?.let { target ->
+            if (eyesOpen) {
+                if (gazeCalCollectCalib) gazeCalSamples += GazeSample(features, target)
+                else gazeModel?.let { m -> gazeTestEstimates?.add(gazeTestFilter.filter(t, m.predict(features))) }
+            }
+        }
+        val model = gazeModel ?: return null
+        if (!eyesOpen) return lastGazePoint // eyelids distort the iris estimate while blinking
+        val p = gazeFilter.filter(t, model.predict(features))
+        lastGazePoint = p
+        if (settings.showGazeDot && t - lastDotUpdate > 50) {
+            lastDotUpdate = t
+            _state.update { it.copy(gazePoint = p) }
+        }
+        return p
+    }
+
+    fun onRootSize(width: Float, height: Float) {
+        rootW = width
+        rootH = height
+    }
+
+    /** The UI reports where each option is drawn (root pixels). */
+    fun onCellBounds(row: Int, col: Int, left: Float, top: Float, right: Float, bottom: Float) {
+        if (rootW <= 0f || rootH <= 0f) return
+        val r = CellRect(row, col, (left / rootW).toDouble(), (top / rootH).toDouble(), (right / rootW).toDouble(), (bottom / rootH).toDouble())
+        if (cellBounds[row to col] != r) {
+            cellBounds[row to col] = r
+            cellRects = cellBounds.values.toList()
+        }
+    }
+
+    fun onGazeCalibrationArea(left: Float, top: Float, width: Float, height: Float) {
+        gazeCalArea = floatArrayOf(left, top, width, height)
+    }
+
+    /** Fraction of the calibration area → fraction of the whole window. */
+    private fun toRoot(p: Pt): Pt {
+        val a = gazeCalArea
+        if (a == null || rootW <= 0f || rootH <= 0f) return p
+        return Pt((a[0] + p.x * a[2]) / rootW, (a[1] + p.y * a[3]) / rootH)
+    }
+
+    private fun screenCm(): Pair<Double, Double> {
+        val dm = getApplication<Application>().resources.displayMetrics
+        val w = if (rootW > 0) rootW else dm.widthPixels.toFloat()
+        val h = if (rootH > 0) rootH else dm.heightPixels.toFloat()
+        return (w / dm.xdpi * 2.54) to (h / dm.ydpi * 2.54)
+    }
+
+    fun startGazeCalibration() {
+        gazeCalJob?.cancel()
+        gazeCalJob = viewModelScope.launch {
+            fun set(st: GazeCalibrationState) = _state.update { it.copy(gazeCalibration = st) }
+            gazeCalSamples.clear()
+            val intro = "به نقطه‌ی زرد نگاه کنید و هر بار که جابه‌جا شد، با چشم دنبالش کنید. سرتان را ثابت نگه دارید."
+            set(GazeCalibrationState(GazeCalPhase.CALIBRATING, message = intro, steps = 9))
+            c.speaker.speak(intro)
+            delay(4500)
+            val targets = GazeCalibrationPlan.calibrationTargets
+            for ((i, t) in targets.withIndex()) {
+                set(GazeCalibrationState(GazeCalPhase.CALIBRATING, target = t, step = i + 1, steps = targets.size))
+                delay(GazeCalibrationPlan.SETTLE_MS)
+                gazeCalCollectCalib = true
+                gazeCalTarget = toRoot(t)
+                delay(GazeCalibrationPlan.COLLECT_MS)
+                gazeCalTarget = null
+            }
+            if (gazeCalSamples.size < targets.size * 8) {
+                val msg = "چشم‌ها به‌خوبی دیده نشد. نور صورت را بیشتر کنید، تبلت را روبه‌روی صورت بگذارید و دوباره امتحان کنید."
+                set(GazeCalibrationState(GazeCalPhase.FAILED, message = msg))
+                c.speaker.speak("تنظیم نگاه انجام نشد.")
+                return@launch
+            }
+            val model = GazeModel.fit(gazeCalSamples.toList())
+            gazeModel = model
+            val testMsg = "حالا چند نقطه‌ی دیگر، برای سنجیدن دقت."
+            set(GazeCalibrationState(GazeCalPhase.TESTING, message = testMsg, steps = GazeCalibrationPlan.testTargets.size))
+            c.speaker.speak(testMsg)
+            delay(3000)
+            val rootTargets = ArrayList<Pt>()
+            val estimates = ArrayList<List<Pt>>()
+            for ((i, t) in GazeCalibrationPlan.testTargets.withIndex()) {
+                set(GazeCalibrationState(GazeCalPhase.TESTING, target = t, step = i + 1, steps = GazeCalibrationPlan.testTargets.size))
+                delay(GazeCalibrationPlan.SETTLE_MS)
+                val list = ArrayList<Pt>()
+                gazeTestFilter = OneEuroFilter()
+                gazeTestEstimates = list
+                gazeCalCollectCalib = false
+                gazeCalTarget = toRoot(t)
+                delay(GazeCalibrationPlan.COLLECT_MS)
+                gazeCalTarget = null
+                gazeTestEstimates = null
+                rootTargets += toRoot(t)
+                estimates += list
+            }
+            val (wCm, hCm) = screenCm()
+            val report = GazeCalibrationPlan.evaluate(rootTargets, estimates, wCm, hCm)
+            if (!report.meanErrorCm.isFinite()) {
+                set(GazeCalibrationState(GazeCalPhase.FAILED, message = "در مرحله‌ی سنجش، چشم‌ها دیده نشد. دوباره امتحان کنید."))
+                return@launch
+            }
+            val maxCells = report.maxDirectCells.coerceAtLeast(2)
+            c.settings.update {
+                it.copy(gazeModel = model.toJson(), gazeErrorCm = report.meanErrorCm.toFloat(), gazeMaxCells = maxCells)
+            }
+            val advice = when {
+                maxCells >= 16 -> "دقت خوب است: صفحه‌ی اصلی مستقیم با نگاه انتخاب می‌شود و صفحه‌کلید دومرحله‌ای است."
+                maxCells >= 6 -> "دقت متوسط است: گزینه‌ها در گروه‌های بزرگ نشان داده می‌شوند (انتخاب دومرحله‌ای)."
+                else -> "دقت برای انتخاب مستقیم کافی نیست. روش «اسکن خودکار + پلک» توصیه می‌شود؛ می‌توانید با نور بهتر یا تبلت نزدیک‌تر دوباره امتحان کنید."
+            }
+            set(GazeCalibrationState(GazeCalPhase.DONE, message = advice, errorCm = report.meanErrorCm, jitterCm = report.jitterCm, maxCells = maxCells))
+            c.speaker.speak("تنظیم نگاه تمام شد.")
+        }
+    }
+
+    fun useDirectGaze() {
+        updateSettings { it.copy(inputMode = InputMode.GAZE_POINT) }
+        finishGazeCalibration()
+    }
+
+    fun finishGazeCalibration() {
+        gazeCalJob?.cancel()
+        gazeCalTarget = null
+        gazeTestEstimates = null
+        _state.update { it.copy(gazeCalibration = GazeCalibrationState()) }
         navigate(Screen.Home)
     }
 
