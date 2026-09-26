@@ -50,7 +50,9 @@ jobs:
       - name: Test
         if: steps.v.outputs.skip != 'true'
         working-directory: app
-        run: ./gradlew -PcoreOnly=true test :android:testDebugUnitTest
+        run: |
+          ./gradlew -PcoreOnly=true test
+          ./gradlew :android:testDebugUnitTest
       - name: Build APK
         if: steps.v.outputs.skip != 'true'
         working-directory: app
